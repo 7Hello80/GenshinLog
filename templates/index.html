@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>原神抽卡分析</title>
+    <!-- Element UI CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+    <!-- Vue 2 -->
+    <script src="https://unpkg.com/vue@2/dist/vue.js"></script>
+    <!-- Element UI JS -->
+    <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+    <!-- css样式 -->
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/mdui@2/mdui.css">
+    <script src="https://unpkg.com/mdui@2/mdui.global.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <!-- 标题 -->
+            <div class="header">
+                <h1>原神抽卡分析</h1>
+                <p>输入您的抽卡链接，查看详细的抽卡统计数据</p>
+            </div>
+
+            <!-- 输入区域 -->
+            <div class="card">
+                <div class="input-section">
+                    <div class="input-flex">
+                        <el-input
+                            v-model="gachaUrl"
+                            placeholder="请输入抽卡链接"
+                            clearable
+                        >
+                            <i slot="prefix" class="el-input__icon el-icon-link"></i>
+                        </el-input>
+                    </div>
+                    <el-button
+                        type="primary"
+                        @click="analyzeGacha"
+                        :loading="loading"
+                        class="btn-analyze"
+                    >
+                        <span v-if="!loading">开始分析</span>
+                        <span v-else>分析中...</span>
+                    </el-button>
+                </div>
+                <div class="tip">
+                    💡 提示：使用HoYoGet获取抽卡记录链接，复制链接后粘贴到上方输入框
+                </div>
+            </div>
+
+            <!-- 数据展示区域 -->
+            <div>
+                <!-- 标签页切换 -->
+                <div class="card">
+                    <div class="tabs-container">
+                        <button
+                            v-for="type in displayOrder.filter(key => gachaData[key])"
+                            :key="type"
+                            @click="activeTab = type"
+                            :class="['tab-button', activeTab === type ? 'active' : '']"
+                        >
+                            {{ gachaData[type].name }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 当前卡池数据 -->
+                <div v-show="currentPool">
+                    <!-- 统计概览 -->
+                    <div class="card">
+                        <h2 style="font-size: 18px; font-weight: bold; color: #333; margin-bottom: 15px;">统计概览</h2>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <div class="stat-value" style="color: #409eff;">{{ currentPool.stats.total_pulls }}</div>
+                                <div class="stat-label">总抽数</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" style="color: #9b59b6;">{{ currentPool.stats.five_star_count }}</div>
+                                <div class="stat-label">五星数量</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" style="color: #27ae60;">{{ currentPool.stats.four_star_count }}</div>
+                                <div class="stat-label">四星数量</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" style="color: #f4d03f;">{{ formatNumber(currentPool.stats.total_primogems) }}</div>
+                                <div class="stat-label">消耗原石</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 五星抽卡记录 -->
+                    <div class="card">
+                        <h2 style="font-size: 18px; font-weight: bold; color: #333; margin-bottom: 15px;">五星抽卡记录</h2>
+
+                        <div v-show="currentPool.pulls && currentPool.pulls.length > 0">
+                            <div
+                                v-for="(item, index) in reversedFiveStarPulls"
+                                :key="'5star-' + index"
+                                class="gacha-item"
+                            >
+                                <div class="gacha-content">
+                                    <!-- 头像 -->
+                                    <div class="avatar-container">
+                                        <img
+                                            :src="item.avatar_url"
+                                            :alt="item.name"
+                                            class="avatar"
+                                        >
+                                        <!-- 歪的图案 -->
+                                        <div v-if="item.is_wai" class="wai-stamp">
+                                            <span class="wai-stamp-text">歪</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- 信息 -->
+                                    <div class="gacha-info">
+                                        <div>
+                                            <span :class="['badge', item.rank_type === '5' ? 'five-star' : 'four-star']">
+                                                {{ item.rank_type }}星
+                                            </span>
+                                            <span class="item-type">{{ item.item_type }}</span>
+                                        </div>
+                                        <h3 class="item-name">{{ item.name }}</h3>
+                                        <p class="item-time">{{ item.time }}</p>
+                                    </div>
+
+                                    <!-- 抽数统计 -->
+                                    <div class="gacha-stats">
+                                        <div class="pulls-count">{{ item.pulls_before }}</div>
+                                        <div class="pulls-label">抽</div>
+                                    </div>
+                                </div>
+
+                                <!-- 进度条 -->
+                                <div class="progress-section">
+                                    <div class="progress-header">
+                                        <span>保底进度</span>
+                                        <span>{{ Math.min(item.pulls_before, 90) }}/90</span>
+                                    </div>
+                                    <div class="progress-bar-bg">
+                                        <div
+                                            class="progress-bar-fill"
+                                            :class="getProgressBarClass(item.pulls_before)"
+                                            :style="{ width: Math.min(item.pulls_before / 90 * 100, 100) + '%' }"
+                                        ></div>
+                                    </div>
+                                    <div class="progress-labels">
+                                        <span>0抽</span>
+                                        <span v-if="item.pulls_before >= 73" style="color: #f4d03f;">软保底（73抽）</span>
+                                        <span v-if="item.pulls_before >= 90" style="color: #f56c6c;">硬保底（90抽）</span>
+                                        <span>90抽</span>
+                                    </div>
+                                </div>
+
+                                <!-- 原石消耗 -->
+                                <div class="cost-section">
+                                    <span class="cost-label">消耗原石: </span>
+                                    <span class="cost-value">{{ formatNumber(item.primogems_cost) }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-show="!currentPool.pulls || currentPool.pulls.length === 0" class="no-data">
+                            <p>暂无五星记录</p>
+                        </div>
+                    </div>
+
+                    <!-- 四星抽卡记录 -->
+                    <div class="card">
+                        <h2 style="font-size: 18px; font-weight: bold; color: #333; margin-bottom: 15px;">四星抽卡记录</h2>
+
+                        <div v-show="currentPool.four_star_pulls && currentPool.four_star_pulls.length > 0">
+                            <div
+                                v-for="(item, index) in reversedFourStarPulls"
+                                :key="'4star-' + index"
+                                class="gacha-item"
+                            >
+                                <div class="gacha-content">
+                                    <!-- 头像 -->
+                                    <div class="flex-shrink-0">
+                                        <img
+                                            :src="item.avatar_url"
+                                            :alt="item.name"
+                                            class="avatar"
+                                        >
+                                    </div>
+
+                                    <!-- 信息 -->
+                                    <div class="gacha-info">
+                                        <div>
+                                            <span :class="['badge', item.rank_type === '5' ? 'five-star' : 'four-star']">
+                                                {{ item.rank_type }}星
+                                            </span>
+                                            <span class="item-type">{{ item.item_type }}</span>
+                                        </div>
+                                        <h3 class="item-name">{{ item.name }}</h3>
+                                        <p class="item-time">{{ item.time }}</p>
+                                    </div>
+
+                                    <!-- 抽数统计 -->
+                                    <div class="gacha-stats">
+                                        <div class="pulls-count">{{ item.pulls_before }}</div>
+                                        <div class="pulls-label">抽</div>
+                                    </div>
+                                </div>
+
+                                <!-- 进度条 -->
+                                <div class="progress-section">
+                                    <div class="progress-header">
+                                        <span>保底进度</span>
+                                        <span>{{ Math.min(item.pulls_before, 10) }}/10</span>
+                                    </div>
+                                    <div class="progress-bar-bg">
+                                        <div
+                                            class="progress-bar-fill"
+                                            :class="getProgressBarClass4Star(item.pulls_before)"
+                                            :style="{ width: Math.min(item.pulls_before / 10 * 100, 100) + '%' }"
+                                        ></div>
+                                    </div>
+                                    <div class="progress-labels">
+                                        <span>0抽</span>
+                                        <span v-if="item.pulls_before >= 9" style="color: #f4d03f;">保底（9抽）</span>
+                                        <span>10抽</span>
+                                    </div>
+                                </div>
+
+                                <!-- 原石消耗 -->
+                                <div class="cost-section">
+                                    <span class="cost-label">消耗原石: </span>
+                                    <span class="cost-value">{{ formatNumber(item.primogems_cost) }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-show="!currentPool.four_star_pulls || currentPool.four_star_pulls.length === 0" class="no-data">
+                            <p>暂无四星记录</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- js样式 -->
+    <script src="/static/script.js"></script>
+</body>
+</html>
